@@ -1,57 +1,74 @@
 import logging
 import xml.etree.ElementTree as ET
 from datetime import datetime
-
 from typing import Optional
 
-import voluptuous as vol
-import requests
-
-from homeassistant.components.media_player import (
-    MediaPlayerEntity, PLATFORM_SCHEMA)
-
-from homeassistant.components.media_player.const import (
-    MEDIA_TYPE_PLAYLIST, MEDIA_TYPE_CHANNEL, SUPPORT_NEXT_TRACK, SUPPORT_PAUSE, SUPPORT_PLAY, SUPPORT_PREVIOUS_TRACK,
-    SUPPORT_SELECT_SOURCE, SUPPORT_STOP, SUPPORT_TURN_OFF, SUPPORT_TURN_ON, SUPPORT_VOLUME_MUTE, SUPPORT_VOLUME_SET,
-    SUPPORT_SHUFFLE_SET)
-from homeassistant.const import (
-    CONF_HOST, CONF_NAME, STATE_OFF, STATE_IDLE, STATE_PLAYING, STATE_UNKNOWN)
-
-import homeassistant.util.dt as dt_util
 import homeassistant.helpers.config_validation as cv
+import homeassistant.util.dt as dt_util
+import requests
+import voluptuous as vol
+from homeassistant.components.media_player import MediaPlayerEntity
+from homeassistant.components.media_player.const import (
+    MediaPlayerEntityFeature,
+    MediaType,
+)
+from homeassistant.const import (
+    CONF_HOST,
+    CONF_NAME,
+    STATE_IDLE,
+    STATE_OFF,
+    STATE_PLAYING,
+    STATE_UNKNOWN,
+)
+from homeassistant.helpers.config_validation import PLATFORM_SCHEMA
 
-DOMAIN = 'rn301'
+DOMAIN = "rn301"
 
-ATTR_ENABLED = 'enabled'
-ATTR_PORT = 'port'
-DATA_YAMAHA = 'yamaha_known_receivers'
-DEFAULT_NAME = 'Yamaha R-N301'
+ATTR_ENABLED = "enabled"
+ATTR_PORT = "port"
+DATA_YAMAHA = "yamaha_known_receivers"
+DEFAULT_NAME = "Yamaha R-N301"
 DEFAULT_TIMEOUT = 5
-BASE_URL = 'http://{0}/YamahaRemoteControl/ctrl'
+BASE_URL = "http://{0}/YamahaRemoteControl/ctrl"
 
-SERVICE_ENABLE_OUTPUT = 'yamaha_enable_output'
-SUPPORT_YAMAHA = SUPPORT_VOLUME_SET | SUPPORT_VOLUME_MUTE | SUPPORT_TURN_ON | SUPPORT_TURN_OFF | \
-                 SUPPORT_SELECT_SOURCE | SUPPORT_PLAY | SUPPORT_PAUSE | SUPPORT_STOP | \
-                 SUPPORT_NEXT_TRACK | SUPPORT_PREVIOUS_TRACK | SUPPORT_SHUFFLE_SET
+SERVICE_ENABLE_OUTPUT = "yamaha_enable_output"
 
-SUPPORTED_PLAYBACK = SUPPORT_VOLUME_SET | SUPPORT_VOLUME_MUTE | SUPPORT_TURN_ON | SUPPORT_TURN_OFF | \
-                     SUPPORT_SELECT_SOURCE | SUPPORT_SHUFFLE_SET
+SUPPORTED_PLAYBACK = (
+    MediaPlayerEntityFeature.VOLUME_SET
+    | MediaPlayerEntityFeature.VOLUME_MUTE
+    | MediaPlayerEntityFeature.TURN_ON
+    | MediaPlayerEntityFeature.TURN_OFF
+    | MediaPlayerEntityFeature.SELECT_SOURCE
+    | MediaPlayerEntityFeature.SHUFFLE_SET
+)
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-    vol.Required(CONF_HOST): cv.string
-})
+SUPPORT_YAMAHA = (
+    SUPPORTED_PLAYBACK
+    | MediaPlayerEntityFeature.PLAY
+    | MediaPlayerEntityFeature.PAUSE
+    | MediaPlayerEntityFeature.STOP
+    | MediaPlayerEntityFeature.NEXT_TRACK
+    | MediaPlayerEntityFeature.PREVIOUS_TRACK
+)
+
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+    {
+        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        vol.Required(CONF_HOST): cv.string,
+    }
+)
+
 SOURCE_MAPPING = {
-    'AirPlay': 'AirPlay',
-    'Optical': 'OPTICAL',
-    'CD': 'CD',
-    'Spotify': 'Spotify',
-    'Line 1': 'LINE1',
-    'Line 2': 'LINE2',
-    'Line 3': 'LINE3',
-    'Net Radio': 'NET RADIO',
-    'Server': 'SERVER',
-    'Tuner': 'TUNER'
+    "AirPlay": "AirPlay",
+    "Optical": "OPTICAL",
+    "CD": "CD",
+    "Spotify": "Spotify",
+    "Line 1": "LINE1",
+    "Line 2": "LINE2",
+    "Line 3": "LINE3",
+    "Net Radio": "NET RADIO",
+    "Server": "SERVER",
+    "Tuner": "TUNER",
 }
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,7 +82,6 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
 
 class YamahaRn301MP(MediaPlayerEntity):
-
     def __init__(self, name, host):
         self._data = None
         self._name = name
@@ -76,13 +92,13 @@ class YamahaRn301MP(MediaPlayerEntity):
         self._muted = False
         self._is_on = None
         self._current_state = -1
-        self._current_operation = ''
+        self._current_operation = ""
         self._set_state = None
         self._source = None
         self._device_source = None
         self._source_list = list(SOURCE_MAPPING.keys())
         self._reverse_mapping = {val: key for key, val in SOURCE_MAPPING.items()}
-        self._operation_list = ['On', 'Vol']
+        self._operation_list = ["On", "Vol"]
 
         self._media_meta = {}
         self._media_playing = False
@@ -97,7 +113,9 @@ class YamahaRn301MP(MediaPlayerEntity):
         _LOGGER.debug("Init called")
 
     def update(self) -> None:
-        data = self._do_api_get("<Main_Zone><Basic_Status>GetParam</Basic_Status></Main_Zone>")
+        data = self._do_api_get(
+            "<Main_Zone><Basic_Status>GetParam</Basic_Status></Main_Zone>"
+        )
         tree = ET.fromstring(data)
         for node in tree[0][0]:
             if node.tag == "Power_Control":
@@ -109,7 +127,6 @@ class YamahaRn301MP(MediaPlayerEntity):
                     elif voln.tag == "Mute":
                         self._muted = voln.text == "On"
             elif node.tag == "Input":
-
                 txt = node.find("Input_Sel").text
                 self._source = self._reverse_mapping[txt]
                 self._device_source = txt.replace(" ", "_")
@@ -122,7 +139,15 @@ class YamahaRn301MP(MediaPlayerEntity):
 
     @property
     def supported_features(self):
-        if self._source in ("Optical", "CD", "Line 1", "Line 2", "Line 3", "Tuner", "AirPlay"):
+        if self._source in (
+            "Optical",
+            "CD",
+            "Line 1",
+            "Line 2",
+            "Line 3",
+            "Tuner",
+            "AirPlay",
+        ):
             return SUPPORTED_PLAYBACK
         return SUPPORT_YAMAHA
 
@@ -160,7 +185,11 @@ class YamahaRn301MP(MediaPlayerEntity):
     def media_title(self):
         """Title of currently playing track"""
         if "song" in self._media_meta and "frequency" in self._media_meta:
-            return self._media_meta["song"] if datetime.now().second < 20 else self._media_meta["frequency"]
+            return (
+                self._media_meta["song"]
+                if datetime.now().second < 20
+                else self._media_meta["frequency"]
+            )
         elif "song" in self._media_meta:
             return self._media_meta.get("song")
         elif "frequency" in self._media_meta:
@@ -169,18 +198,18 @@ class YamahaRn301MP(MediaPlayerEntity):
     @property
     def media_album(self):
         """Album of currently playing track"""
-        return self._media_meta.get('album')
+        return self._media_meta.get("album")
 
     @property
     def media_artist(self) -> Optional[str]:
         """Artist of currently playing track"""
-        return self._media_meta.get('artist')
+        return self._media_meta.get("artist")
 
     @property
     def media_content_type(self):
         if self._source == "Net Radio" or self._source == "Tuner":
-            return MEDIA_TYPE_CHANNEL
-        return MEDIA_TYPE_PLAYLIST
+            return MediaType.CHANNEL
+        return MediaType.PLAYLIST
 
     @property
     def shuffle(self):
@@ -199,20 +228,32 @@ class YamahaRn301MP(MediaPlayerEntity):
 
     def set_volume_level(self, volume):
         self._do_api_put(
-            '<Main_Zone><Volume><Lvl><Val>{0}</Val><Exp>0</Exp><Unit></Unit></Lvl></Volume></Main_Zone>'.format(
-                int(volume * 50)))
+            "<Main_Zone><Volume><Lvl><Val>{0}</Val><Exp>0</Exp><Unit></Unit></Lvl></Volume></Main_Zone>".format(
+                int(volume * 50)
+            )
+        )
 
     def select_source(self, source):
         self._do_api_put(
-            '<Main_Zone><Input><Input_Sel>{0}</Input_Sel></Input></Main_Zone>'.format(SOURCE_MAPPING[source]))
+            "<Main_Zone><Input><Input_Sel>{0}</Input_Sel></Input></Main_Zone>".format(
+                SOURCE_MAPPING[source]
+            )
+        )
 
     def mute_volume(self, mute):
-        self._do_api_put('<System><Volume><Mute>{0}</Mute></Volume></System>'.format('On' if mute else 'Off'))
+        self._do_api_put(
+            "<System><Volume><Mute>{0}</Mute></Volume></System>".format(
+                "On" if mute else "Off"
+            )
+        )
         self._muted = mute
 
     def _media_play_control(self, command):
         self._do_api_put(
-            '<{0}><Play_Control><Playback>{1}</Playback></Play_Control></{0}>'.format(self._device_source, command))
+            "<{0}><Play_Control><Playback>{1}</Playback></Play_Control></{0}>".format(
+                self._device_source, command
+            )
+        )
 
     def media_play(self):
         """Play media"""
@@ -234,7 +275,10 @@ class YamahaRn301MP(MediaPlayerEntity):
 
     def _set_power_state(self, on):
         self._do_api_put(
-            '<System><Power_Control><Power>{0}</Power></Power_Control></System>'.format("On" if on else "Standby"))
+            "<System><Power_Control><Power>{0}</Power></Power_Control></System>".format(
+                "On" if on else "Standby"
+            )
+        )
 
     def _do_api_request(self, data) -> str:
         data = '<?xml version="1.0" encoding="utf-8"?>' + data
@@ -246,7 +290,7 @@ class YamahaRn301MP(MediaPlayerEntity):
         return req.text
 
     def _do_api_get(self, data) -> str:
-        request = '<YAMAHA_AV cmd="GET">' + data + '</YAMAHA_AV>'
+        request = '<YAMAHA_AV cmd="GET">' + data + "</YAMAHA_AV>"
         _LOGGER.debug("Request:")
         _LOGGER.debug(request)
         response = self._do_api_request(request)
@@ -255,7 +299,7 @@ class YamahaRn301MP(MediaPlayerEntity):
         return response
 
     def _do_api_put(self, data) -> str:
-        data = '<YAMAHA_AV cmd="PUT">' + data + '</YAMAHA_AV>'
+        data = '<YAMAHA_AV cmd="PUT">' + data + "</YAMAHA_AV>"
         return self._do_api_request(data)
 
     def _nullify_media_fields(self) -> None:
@@ -277,24 +321,27 @@ class YamahaRn301MP(MediaPlayerEntity):
 
     def _update_media_playing(self):
         media_meta_mapping = {
-            'Artist': 'artist',
-            'Station': 'song',
-            'Radio_Text_A': 'song',
-            'Album': 'album',
-            'Song': 'song',
-            'Track': 'song',
+            "Artist": "artist",
+            "Station": "song",
+            "Radio_Text_A": "song",
+            "Album": "album",
+            "Song": "song",
+            "Track": "song",
         }
         device_mapping = {
             "Spotify": "Spotify",
             "NET_RADIO": "NET_RADIO",
             "SERVER": "SERVER",
-            "TUNER": "Tuner"
+            "TUNER": "Tuner",
         }
 
         try:
             if self._device_source in device_mapping:
                 data = self._do_api_get(
-                    "<{0}><Play_Info>GetParam</Play_Info></{0}>".format(device_mapping[self._device_source]))
+                    "<{0}><Play_Info>GetParam</Play_Info></{0}>".format(
+                        device_mapping[self._device_source]
+                    )
+                )
                 self._media_meta = {}
                 tree = ET.fromstring(data)
                 for node in tree[0][0]:
@@ -308,7 +355,9 @@ class YamahaRn301MP(MediaPlayerEntity):
                         elif node.tag == "Meta_Info":
                             for meta in node:
                                 if meta.tag in media_meta_mapping and meta.text:
-                                    self._media_meta[media_meta_mapping[meta.tag]] = meta.text.replace('&amp;', '&')
+                                    self._media_meta[media_meta_mapping[meta.tag]] = (
+                                        meta.text.replace("&amp;", "&")
+                                    )
                         elif node.tag == "Playback_Info":
                             self._set_playback_info(node.text)
                         elif node.tag == "Signal_Info":
