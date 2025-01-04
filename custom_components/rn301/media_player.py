@@ -85,6 +85,7 @@ class YamahaRn301MP(MediaPlayerEntity):
     def __init__(self, name, host):
         self._data = None
         self._name = name
+        self._attr_unique_id = "{name}_rn301"
         self._host = host
         self._base_url = BASE_URL.format(self._host)
         self._pwstate = STATE_UNKNOWN
